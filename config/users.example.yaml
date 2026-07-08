@@ -1,0 +1,4 @@
+# Map Telegram user IDs to display names (used as sheet signatures)
+users:
+  "123456789": "Иван Иванов"
+  "987654321": "Мария Петрова"

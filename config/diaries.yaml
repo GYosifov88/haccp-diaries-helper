@@ -1,0 +1,243 @@
+# Single source of truth for all HACCP diary types.
+# Column keys are internal field names; values are Google Sheet column headers (Bulgarian).
+
+spreadsheet_name: "Главен дневник"
+
+diaries:
+  temperature_fridge:
+    label: "температури на хладилници"
+    sheet: "Дневник за температури на хладилници"
+    required_fields:
+      - fridge_number
+      - temperature
+    columns:
+      entry_id: entry_id
+      date: "Дата"
+      time: "Час"
+      fridge_number: "Хладилник №"
+      temperature: "Показана температура"
+      corrective_action: "Коригиращо действие (ако е над +4°C)"
+      signature: "Подпис"
+      timestamp: timestamp
+
+  temperature_thermal:
+    label: "термична обработка"
+    sheet: "Дневник за температури при термична обработка"
+    required_fields:
+      - product
+      - core_temperature
+      - operator
+    columns:
+      entry_id: entry_id
+      date: "Дата"
+      product: "Продукт"
+      batch: "Партида / количество"
+      core_temperature: "Температура в ядрото (°C)"
+      operator: "Оператор"
+      corrective_action: "Коригиращо действие"
+      signature: "Подпис"
+      timestamp: timestamp
+
+  incoming_goods:
+    label: "входящ контрол"
+    sheet: "Дневник за входящ контрол"
+    required_fields:
+      - supplier
+      - product
+      - temperature
+      - expiry_date
+      - package_condition
+      - documents
+      - decision
+    supports_invoice_items: true
+    columns:
+      entry_id: entry_id
+      date: "Дата"
+      supplier: "Доставчик"
+      product: "Продукт"
+      quantity: "Количество"
+      temperature: "Температура при приемане"
+      expiry_date: "Срок на годност"
+      package_condition: "Състояние на опаковката"
+      documents: "Документи (фактура/стокова разписка)"
+      decision: "Решение (прието/отказано)"
+      note: "Забележка"
+      signature: "Подпис"
+      timestamp: timestamp
+
+  cleaning:
+    label: "почистване"
+    sheet: "Дневник за почистване и дезинфекция"
+    required_fields:
+      - area
+      - cleaning_type
+      - chemical
+      - frequency
+    columns:
+      entry_id: entry_id
+      date: "Дата"
+      area: "Зона / оборудване"
+      cleaning_type: "Вид почистване (мокро/сухо/дезинфекция)"
+      chemical: "Използван препарат"
+      frequency: "Честота"
+      executor: "Изпълнител"
+      signature: "Подпис"
+      timestamp: timestamp
+
+  personal_hygiene:
+    label: "лична хигиена"
+    sheet: "Дневник за лична хигиена"
+    required_fields:
+      - employee
+      - clean_uniform
+      - washed_hands
+      - no_jewelry
+    columns:
+      entry_id: entry_id
+      date: "Дата"
+      employee: "Име на служител"
+      clean_uniform: "Чисто работно облекло"
+      washed_hands: "Измити ръце"
+      no_jewelry: "Без бижута"
+      note: "Забележки"
+      signature: "Подпис"
+      timestamp: timestamp
+
+  waste:
+    label: "отпадъци"
+    sheet: "Дневник за отпадъци"
+    required_fields:
+      - waste_type
+      - quantity
+      - container
+      - disposed_where
+    columns:
+      entry_id: entry_id
+      date: "Дата"
+      waste_type: "Вид отпадък"
+      quantity: "Количество"
+      container: "Контейнер (описание)"
+      disposed_where: "Изхвърлено къде"
+      executor: "Изпълнител"
+      signature: "Подпис"
+      timestamp: timestamp
+
+  pest_control:
+    label: "вредители"
+    sheet: "Дневник за контрол на вредители"
+    required_fields:
+      - zone
+      - observation
+      - action
+    columns:
+      entry_id: entry_id
+      date: "Дата"
+      zone: "Зона"
+      observation: "Наблюдение (следи/няма следи)"
+      action: "Действие"
+      executor: "Изпълнител"
+      signature: "Подпис"
+      timestamp: timestamp
+
+  equipment_control:
+    label: "оборудване"
+    sheet: "Дневник за контрол на оборудване"
+    required_fields:
+      - equipment
+      - status
+    columns:
+      entry_id: entry_id
+      date: "Дата"
+      equipment: "Оборудване"
+      status: "Проверка (OK/не OK)"
+      note: "Забележки"
+      corrective_action: "Коригиращо действие"
+      executor: "Изпълнител"
+      signature: "Подпис"
+      timestamp: timestamp
+
+  water_control:
+    label: "контрол на вода"
+    sheet: "Дневник за контрол на вода"
+    required_fields:
+      - source
+      - certificate
+    columns:
+      entry_id: entry_id
+      date: "Дата"
+      source: "Източник на вода"
+      certificate: "Наличие на сертификат"
+      note: "Забележки"
+      signature: "Подпис"
+      timestamp: timestamp
+
+  ddd:
+    label: "ДДД"
+    sheet: "Дневник за ДДД"
+    required_fields:
+      - treatment_type
+      - executor
+      - chemical
+      - zone
+      - protocol_number
+    columns:
+      entry_id: entry_id
+      date: "Дата"
+      treatment_type: "Вид обработка"
+      executor: "Изпълнител (фирма)"
+      chemical: "Препарат"
+      zone: "Зона"
+      protocol_number: "Протокол №"
+      signature: "Подпис"
+      timestamp: timestamp
+
+  traceability:
+    label: "проследимост"
+    sheet: "Дневник за проследимост"
+    required_fields:
+      - product
+      - supplier
+      - used_in
+    columns:
+      entry_id: entry_id
+      date: "Дата"
+      product: "Продукт"
+      batch: "Партида"
+      supplier: "Доставчик"
+      quantity: "Количество"
+      used_in: "Използван в ястие"
+      signature: "Подпис"
+      timestamp: timestamp
+
+  complaints:
+    label: "рекламации"
+    sheet: "Дневник за рекламации"
+    required_fields:
+      - client
+      - description
+      - action
+    columns:
+      entry_id: entry_id
+      date: "Дата"
+      client: "Клиент"
+      description: "Описание на оплакването"
+      product: "Продукт"
+      action: "Действие"
+      result: "Резултат"
+      signature: "Подпис"
+      timestamp: timestamp
+
+# Bulgarian keyword hints for classification (used in extraction prompts)
+classification_hints:
+  temperature_fridge: ["хладилник", "температура хладилник", "градуса хладилник"]
+  temperature_thermal: ["термична обработка", "готвене", "ядро", "вътрешна температура"]
+  incoming_goods: ["купихме", "купих", "закупихме", "доставчик", "фактура", "приемане"]
+  cleaning: ["почистване", "дезинфекция", "белина", "почистен"]
+  personal_hygiene: ["хигиена", "облекло", "ръце", "бижута"]
+  waste: ["отпадъци", "боклук", "изхвърлихме"]
+  pest_control: ["вредители", "мишки", "хлебарки", "плъхове"]
+  equipment_control: ["оборудване", "уред", "хладилник работи"]
+  water_control: ["вода", "чешма", "сертификат вода"]
+  ddd: ["ддд", "дератизация", "дезинсекция"]
+  traceability: ["проследимост", "партида", "batch"]
+  complaints: ["рекламация", "оплакване", "жалба"]

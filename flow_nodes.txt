@@ -1,0 +1,760 @@
+--- AI Agent ---
+={{ $('Build Dynamic Context').item.json.text }}
+
+--- Resolve User ---
+const userId = String($('Telegram Trigger').item.json.message.from.id);
+
+let users = $('User Config').item.json.users;
+if (typeof users === 'string') {
+  users = JSON.parse(users);
+}
+
+const name = users[userId] || null;
+const trigger = $('Telegram Trigger').item.json;
+const msg = trigger.message || {};
+
+return {
+  allowed: !!name,
+  userId: userId,
+  name: name || 'Unknown',
+  signature: name || 'Unknown',
+  chatId: String(msg.chat?.id || trigger.callback_query?.message?.chat?.id || ''),
+  messageText: msg.text || null,
+  hasVoice: !!(msg.voice),
+  voiceFileId: msg.voice?.file_id || null,
+  hasPhoto: !!(msg.photo),
+  photoFileId: msg.photo ? msg.photo[msg.photo.length - 1].file_id : null,
+  hasDocument: !!(msg.document),
+  documentFileId: msg.document?.file_id || null
+};
+
+--- Extract Media File ID ---
+const user = $('Resolve User').item.json;
+
+return {
+  fileId: user.photoFileId || user.documentFileId,
+  fileType: user.hasPhoto ? 'photo' : 'document',
+  chatId: user.chatId,
+  name: user.name,
+  signature: user.signature
+};
+
+--- OCR Document ---
+You are an OCR assistant. Extract ALL text from this invoice/document image.
+
+Focus on extracting:
+- Supplier name (доставчик/получател/фирма)
+- Product names (наименование на стоката)
+- Quantities (количество/кол-во)
+- Prices (цена/стойност)
+- Invoice number (фактура №)
+- Date (дата)
+- Expiry dates (срок на годност) if present
+
+Return the complete raw text exactly as it appears in the document.
+Preserve all numbers, dates, names, and codes.
+Do NOT summarize. Return ALL visible text.
+
+--- Prepare OCR for AI ---
+const rawInput = $input.item.json;
+
+// OCR Document връща nested array структура
+let ocrText = '';
+if (rawInput.text) {
+  ocrText = rawInput.text;
+} else if (Array.isArray(rawInput) && rawInput[0]?.content?.[0]?.text) {
+  ocrText = rawInput[0].content[0].text;
+} else if (rawInput.content?.[0]?.text) {
+  ocrText = rawInput.content[0].text;
+}
+
+const prevData = $('Extract Media File ID').item.json;
+
+return {
+  text: `Извлечен текст от документ/снимка:\n\n${ocrText}\n\nМоля попълни дневник за входящ контрол на база на горния текст.`,
+  chatId: prevData.chatId,
+  name: prevData.name,
+  signature: prevData.signature,
+  source: 'photo'
+};
+
+--- Build Dynamic Context ---
+const chatIdForLookup = (() => {
+  try { return String($('Resolve User').item.json.chatId); } catch(e) { return null; }
+})();
+
+const staticData = $getWorkflowStaticData('global');
+const savedDiary = chatIdForLookup ? staticData[`diary_${chatIdForLookup}`] : null;
+
+const diary = savedDiary || (() => {
+  try { return $('Parse Callback').item.json.callbackValue; } catch(e) { return null; }
+})();
+
+if (savedDiary) {
+  delete staticData[`diary_${chatIdForLookup}`];
+}
+
+const fromEditFields = (() => {
+  try { return $('Edit Fields').item.json.text; } catch(e) { return null; }
+})();
+
+const fromTranscribe = (() => {
+  try { return $('Transcribe a recording').item.json.text; } catch(e) { return null; }
+})();
+
+const fromOCR = (() => {
+  try { return $('Prepare OCR for AI').item.json.text; } catch(e) { return null; }
+})();
+
+const inputText = fromEditFields || fromTranscribe || fromOCR || '';
+
+const isPhoto = (() => {
+  try { return $('Prepare OCR for AI').item.json.source === 'photo'; } catch(e) { return false; }
+})();
+
+const signature = (() => {
+  try { return $('Resolve User').item.json.signature; } catch(e) { return 'неизвестен'; }
+})();
+
+const today = $now.setZone('Europe/Sofia').toFormat('dd.MM.yyyy');
+const currentTime = $now.setZone('Europe/Sofia').toFormat('HH:mm');
+
+const schemas = {
+  fridge_temp: {
+    fields: ['entry_type','date','time','fridge_number','temperature','corrective_action','signature'],
+    hint: 'Extract fridge number and temperature. entry_type must be "temperature_fridge".'
+  },
+  temperature_thermal: {
+    fields: ['entry_type','date','time','product','batch','core_temperature','operator','corrective_action','signature'],
+    hint: 'Extract product name and core temperature. entry_type must be "temperature_thermal".'
+  },
+  incoming_goods: {
+    fields: ['entry_type','date','supplier','product','temperature','expiry_date','package_condition','documents','decision','note','signature'],
+    hint: 'Extract supplier, product, temperature at receiving, expiry date, package condition. entry_type must be "incoming_goods".'
+  },
+  cleaning: {
+    fields: ['entry_type','date','area','cleaning_type','chemical','frequency','executor','signature'],
+    hint: 'Extract area/zone cleaned, type of cleaning, chemical used. entry_type must be "cleaning".'
+  },
+  personal_hygiene: {
+    fields: ['entry_type','date','employee','clean_uniform','washed_hands','no_jewelry','note','signature'],
+    hint: 'Extract employee name, uniform clean, hands washed, no jewelry. Use "да"/"не". entry_type must be "personal_hygiene".'
+  },
+  waste: {
+    fields: ['entry_type','date','waste_type','quantity','container','disposed_where','executor','signature'],
+    hint: 'Extract waste type, quantity, where disposed. entry_type must be "waste".'
+  },
+  pest_control: {
+    fields: ['entry_type','date','zone','observation','action','executor','signature'],
+    hint: 'Extract zone, observation (следи/няма следи), action taken. entry_type must be "pest_control".'
+  },
+  equipment_control: {
+    fields: ['entry_type','date','equipment','status','note','corrective_action','executor','signature'],
+    hint: 'Extract equipment name, status (OK/не OK), notes. entry_type must be "equipment_control".'
+  },
+  water_control: {
+    fields: ['entry_type','date','source','certificate','note','signature'],
+    hint: 'Extract water source, certificate status. entry_type must be "water_control".'
+  },
+  ddd: {
+    fields: ['entry_type','date','treatment_type','executor','chemical','zone','protocol_number','signature'],
+    hint: 'Extract treatment type, executor company, chemical used, zone. entry_type must be "ddd".'
+  },
+  traceability: {
+    fields: ['entry_type','date','product','batch','supplier','quantity','used_in','signature'],
+    hint: 'Extract product, batch number, supplier, quantity, used in which dish. entry_type must be "traceability".'
+  },
+  complaints: {
+    fields: ['entry_type','date','client','description','product','action','result','signature'],
+    hint: 'Extract client name, complaint description, product, action taken, result. entry_type must be "complaints".'
+  }
+};
+
+const selectedSchema = diary ? schemas[diary] : null;
+
+const diaryHint = selectedSchema
+  ? `The user has selected this specific diary: ${diary}. ${selectedSchema.hint}`
+  : 'Determine the correct entry_type from the message automatically.';
+
+const photoInstructions = isPhoto ? `
+IMPORTANT - This is a PHOTO of an invoice/document with MULTIPLE products.
+You MUST extract ALL products as separate items in an "items" array.
+Return this exact structure:
+{
+  "output": {
+    "entry_type": "incoming_goods",
+    "supplier": "supplier name",
+    "date": "date from invoice",
+    "documents": "invoice number",
+    "signature": "${signature}",
+    "items": [
+      {
+        "product": "normalized product name - remove codes and article numbers",
+        "quantity": 1,
+        "unit": "бр",
+        "temperature": "неизвестна",
+        "expiry_date": "if mentioned, else неизвестна",
+        "package_condition": "неизвестна",
+        "decision": "прието"
+      }
+    ]
+  }
+}
+PRODUCT NAME NORMALIZATION:
+- Remove article codes (e.g. 0493699, 0486734)
+- Remove leading numbers
+- Convert to clean Bulgarian name
+- "КУХН. ПОМОЩНИК" → "кухненски помощник"
+- "ПОДЛ. ЗА ОТЦЕЖДАН" → "подложка за отцеждане"
+- "НАЙЛОНОВА ТОРБИЧКА" → "найлонова торбичка"
+- "КОМПЛЕКТ КУПИ" → "комплект купи"
+- "ЦЕДКИ" → "цедка"
+- "КУХНЕНСКИ НОЖ" → "кухненски нож"
+` : '';
+
+const systemPrompt = `You are an AI assistant for HACCP food safety documentation.
+Today's date is: ${today}
+Current time is: ${currentTime}
+
+${diaryHint}
+${photoInstructions}
+
+The signature field must always be: "${signature}"
+If a value is unknown, use "неизвестна".
+Return ONLY valid JSON inside a single "output" object.
+Do NOT wrap in code blocks. Do NOT escape.
+entry_type must ALWAYS be in English exactly as defined.
+CRITICAL: entry_type must be EXACTLY one of these values, nothing else:
+temperature_fridge, temperature_thermal, incoming_goods, ddd, water_control,
+pest_control, equipment_control, personal_hygiene, waste, cleaning, traceability, complaints
+
+"купихме", "купих", "закупихме" = incoming_goods
+"температура хладилник" = temperature_fridge
+"термична обработка", "готвене" = temperature_thermal
+"почистване", "дезинфекция" = cleaning
+"хигиена", "облекло", "ръце" = personal_hygiene
+"отпадъци", "боклук" = waste
+"вредители", "мишки", "хлебарки" = pest_control
+"оборудване", "уред" = equipment_control
+"вода" = water_control
+"ДДД", "дератизация" = ddd
+"проследимост", "партида" = traceability
+"рекламация", "оплакване" = complaints
+
+When entry_type is "temperature_fridge", you MUST extract:
+- fridge_number: the fridge number or identifier
+- temperature: the temperature value as a number
+- time: the time if mentioned, otherwise current time
+- corrective_action: only if temperature is above +4°C
+
+When entry_type is "temperature_thermal", you MUST extract:
+- product: name of the product
+- core_temperature: the internal/core temperature as a number (NOT "temperature")
+- operator: the person who cooked/prepared it
+- batch: batch number or quantity if mentioned
+- corrective_action: only if temperature is below required minimum
+
+When entry_type is "incoming_goods" AND this is NOT a photo, you MUST extract:
+- supplier: name of the supplier/company
+- product: name of the product
+- temperature: temperature at receiving (number)
+- expiry_date: expiry date
+- package_condition: condition of packaging
+- documents: invoice/delivery note number
+- decision: accepted or rejected (прието/отказано)
+- quantity: amount received
+
+When entry_type is "ddd", you MUST extract:
+- treatment_type: дезинфекция/дезинсекция/дератизация
+- executor: the company or person
+- chemical: the chemical/product used
+- zone: the area treated
+- protocol_number: protocol number
+
+When entry_type is "pest_control", you MUST extract:
+- zone: area where pests were observed
+- observation: "следи" if found, "няма следи" if none
+- action: action taken
+- executor: who performed the check
+
+When entry_type is "water_control", you MUST extract:
+- source: water source
+- certificate: да/не
+- note: observations
+
+When entry_type is "equipment_control", you MUST extract:
+- equipment: name of equipment
+- status: OK or не OK
+- note: observations
+- corrective_action: if not OK
+
+When entry_type is "personal_hygiene", you MUST extract:
+- employee: employee name
+- clean_uniform: да/не
+- washed_hands: да/не
+- no_jewelry: да/не
+
+When entry_type is "waste", you MUST extract:
+- waste_type: type of waste
+- quantity: amount
+- container: container description
+- disposed_where: where disposed
+- executor: who disposed it
+
+When entry_type is "cleaning", you MUST extract:
+- area: area cleaned
+- cleaning_type: мокро/сухо/дезинфекция
+- chemical: product used
+- frequency: how often
+- executor: who performed it
+
+When entry_type is "traceability", you MUST extract:
+- product: product name
+- batch: batch number
+- supplier: supplier name
+- quantity: amount
+- used_in: dish or preparation
+
+When entry_type is "complaints", you MUST extract:
+- client: client name
+- description: complaint description
+- product: product complained about
+- action: action taken
+- result: outcome
+
+All other fields may be in Bulgarian.`;
+
+return {
+  text: inputText,
+  systemPrompt,
+  signature,
+  isPhoto,
+  chatId: chatIdForLookup
+};
+
+--- Parse AI Output ---
+const raw = $input.item.json.output || '';
+
+let parsed;
+try {
+  const cleaned = typeof raw === 'string'
+    ? raw.replace(/```json/g, '').replace(/```/g, '').trim()
+    : JSON.stringify(raw);
+  parsed = JSON.parse(cleaned);
+} catch(e) {
+  parsed = { entry_type: 'unknown' };
+}
+
+// Премахваме двойното влагане
+const output = parsed.output?.output || parsed.output || parsed;
+
+return { output };
+
+--- Expand Invoice Items ---
+const output = $input.item.json.output;
+const source = $('Build Dynamic Context').item.json.source || '';
+
+// Ако не е фактура или няма items — подай директно
+if (!output.items || !Array.isArray(output.items)) {
+  return { output };
+}
+
+// Разширяваме всеки продукт в отделен item
+const rows = output.items.map(item => ({
+  output: {
+    entry_type: 'incoming_goods',
+    supplier: output.supplier,
+    date: output.date,
+    documents: output.documents,
+    signature: output.signature,
+    product: item.product,
+    quantity: item.quantity,
+    unit: item.unit,
+    temperature: item.temperature || 'неизвестна',
+    expiry_date: item.expiry_date || 'неизвестна',
+    package_condition: item.package_condition || 'неизвестна',
+    decision: item.decision || 'прието'
+  }
+}));
+
+return rows;
+
+--- Get Row Number ---
+const appended = $input.first().json;
+const entryType = (() => {
+  try { return $('Expand Invoice Items').first().json.output?.entry_type; } catch(e) { return 'unknown'; }
+})();
+
+const sheetNames = {
+  temperature_fridge: 'Дневник за температури на хладилници',
+  temperature_thermal: 'Дневник за температури при термична обработка',
+  incoming_goods: 'Дневник за входящ контрол',
+  cleaning: 'Дневник за почистване и дезинфекция',
+  personal_hygiene: 'Дневник за лична хигиена',
+  waste: 'Дневник за отпадъци',
+  pest_control: 'Дневник за контрол на вредители',
+  equipment_control: 'Дневник за контрол на оборудване',
+  water_control: 'Дневник за контрол на вода',
+  ddd: 'Дневник за ДДД',
+  traceability: 'Дневник за проследимост',
+  complaints: 'Дневник за рекламации'
+};
+
+return [{
+  json: {
+    entryType,
+    entryId: String(appended.entry_id || appended.timestamp || ''),
+    sheetName: sheetNames[entryType] || '',
+    appendedData: appended,
+    chatId: $('Resolve User').first().json.chatId,
+    signature: $('Build Dynamic Context').first().json.signature
+  }
+}];
+
+--- Check Missing Fields ---
+const foundRow = $input.first().json;
+const prev = $('Get Row Number').first().json;
+
+const entryType = prev.entryType;
+const chatId = prev.chatId;
+const signature = prev.signature;
+const sheetName = prev.sheetName;
+const output = prev.appendedData;
+const rowNumber = foundRow.row_number;
+
+const requiredByType = {
+  temperature_fridge: {
+    fridge_number: 'Хладилник №',
+    temperature: 'Показана температура'
+  },
+  temperature_thermal: {
+    product: 'Продукт',
+    core_temperature: 'Температура в ядрото (°C)',
+    operator: 'Оператор'
+  },
+  incoming_goods: {
+    supplier: 'Доставчик',
+    product: 'Продукт',
+    temperature: 'Температура при приемане',
+    expiry_date:'Срок на годност',
+    package_condition: 'Състояние на опаковката',
+    documents:'Документи (фактура/стокова разписка)',
+    decision: 'Решение (прието/отказано)'
+  },
+  cleaning: {
+    area: 'Зона / оборудване',
+    cleaning_type: 'Вид почистване (мокро/сухо/дезинфекция)',
+    chemical:'Използван препарат',
+    frequency:'Честота'
+  },
+  personal_hygiene: {
+    employee: 'Име на служител',
+    clean_uniform: 'Чисто работно облекло',
+    washed_hands: 'Измити ръце',
+    no_jewelry: 'Без бижута'
+  },
+  waste: {
+    waste_type: 'Вид отпадък',
+    quantity: 'Количество',
+    container:'Контейнер (описание)',
+    disposed_where: 'Изхвърлено къде'
+  },
+  pest_control: {
+    zone: 'Зона',
+    observation: 'Наблюдение (следи/няма следи)',
+    action: 'Действие'
+  },
+  equipment_control: {
+    equipment: 'Оборудване',
+    status: 'Проверка (OK/не OK)',
+    notes: 'Забележки'    
+  },
+  water_control: {
+    source: 'Източник на вода',
+    certificate: 'Наличие на сертификат'
+  },
+  ddd: {
+    treatment_type: 'Вид обработка',
+    executor: 'Изпълнител (фирма)',
+    chemical: 'Препарат',
+    zone: 'Зона',
+    protocol_number: 'Протокол №'
+  },
+  traceability: {
+    product: 'Продукт',
+    supplier: 'Доставчик',
+    used_in: 'Използван в ястие'
+  },
+  complaints: {
+    client: 'Клиент',
+    description: 'Описание на оплакването',
+    action: 'Действие'
+  }
+};
+
+const required = requiredByType[entryType] || {};
+const missing = [];
+
+for (const [field, label] of Object.entries(required)) {
+  const val = output[field] || foundRow[label];
+  if (!val || val === 'неизвестна' || val === 'неизвестен' || val === '') {
+    missing.push({ field, label });
+  }
+}
+
+return [{
+  json: {
+    hasMissing: missing.length > 0,
+    missing,
+    rowNumber,
+    sheetName,
+    entryType,
+    chatId,
+    signature
+  }
+}];
+
+--- Save Pending Question ---
+const data = $input.first().json;
+const chatId = String(data.chatId);
+const staticData = $getWorkflowStaticData('global');
+
+staticData[`pending_${chatId}`] = {
+  entryType: data.entryType,
+  missing: data.missing,
+  rowNumber: data.rowNumber,
+  sheetName: data.sheetName,
+  askedAt: Date.now()
+};
+
+const missingLabels = data.missing.map(m => `• ${m.label}`).join('\n');
+
+const diaryNames = {
+  temperature_fridge: 'температури на хладилници',
+  temperature_thermal: 'термична обработка',
+  incoming_goods: 'входящ контрол',
+  cleaning: 'почистване',
+  personal_hygiene: 'лична хигиена',
+  waste: 'отпадъци',
+  pest_control: 'вредители',
+  equipment_control: 'оборудване',
+  water_control: 'контрол на вода',
+  ddd: 'ДДД',
+  traceability: 'проследимост',
+  complaints: 'рекламации'
+};
+
+return [{
+  json: {
+    chatId,
+    text: `Записах дневник за ${diaryNames[data.entryType] || data.entryType}!\n\n` +
+      `Липсват няколко полета:\n${missingLabels}\n\n` +
+      `Отговори с данните разделени със запетая.\n` +
+      `Пример: 3 градуса, опаковката е ок, прието\n\n` +
+      `Или напиши пропусни за да оставиш празни.`
+  }
+}];
+
+--- Check Pending Answer ---
+const chatId = String($('Resolve User').first().json.chatId);
+const staticData = $getWorkflowStaticData('global');
+const pending = staticData[`pending_${chatId}`];
+const text = (() => {
+  try { return $('Edit Fields').first().json.text; } catch(e) { return null; }
+})() || (() => {
+  try { return $('Transcribe a recording').first().json.text; } catch(e) { return null; }
+})() || '';
+
+if (!pending || (Date.now() - pending.askedAt) > 600000) {
+  return [{
+    json: {
+      isPendingAnswer: false,
+      text,
+      chatId
+    }
+  }];
+}
+
+return [{
+  json: {
+    isPendingAnswer: true,
+    text,
+    chatId,
+    pending
+  }
+}];
+
+--- Fill Missing Fields ---
+const data = $input.first().json;
+const chatId = String(data.chatId);
+const text = (data.text || '').toLowerCase().trim();
+const pending = data.pending;
+const staticData = $getWorkflowStaticData('global');
+
+delete staticData[`pending_${chatId}`];
+
+if (text === 'пропусни') {
+  return [{
+    json: {
+      chatId,
+      skipped: true,
+      rowNumber: pending.rowNumber,
+      sheetName: pending.sheetName,
+      entryType: pending.entryType,
+      updates: {}
+    }
+  }];
+}
+
+const answers = text.split(',').map(a => a.trim());
+const missing = pending.missing;
+const updates = {};
+
+answers.forEach((answer, i) => {
+  if (missing[i]) {
+    updates[missing[i].field] = answer;
+  }
+});
+
+return [{
+  json: {
+    chatId,
+    skipped: false,
+    rowNumber: pending.rowNumber,
+    sheetName: pending.sheetName,
+    entryType: pending.entryType,
+    updates
+  }
+}];
+
+--- Prepare Sheet Update ---
+const data = $input.first().json;
+const updates = data.updates || {};
+const entryType = data.entryType;
+
+const columnMappings = {
+  temperature_fridge: {
+    fridge_number: 'Хладилник №',
+    temperature: 'Показана температура',
+    corrective_action: 'Коригиращо действие'
+  },
+  temperature_thermal: {
+    product: 'Продукт',
+    core_temperature: 'Температура в ядрото',
+    operator: 'Оператор',
+    corrective_action: 'Коригиращо действие'
+  },
+  incoming_goods: {
+    supplier: 'Доставчик',
+    product: 'Продукт',
+    temperature: 'Температура при приемане',
+    expiry_date: 'Срок на годност',
+    package_condition: 'Състояние на опаковката',
+    documents: 'Документи (фактура/стокова разписка)',
+    decision: 'Решение (прието/отказано)',
+    quantity: 'Количество'
+  },
+  cleaning: {
+    area: 'Зона',
+    cleaning_type: 'Вид почистване',
+    chemical: 'Препарат',
+    frequency: 'Честота',
+    executor: 'Изпълнител'
+  },
+  personal_hygiene: {
+    employee: 'Служител',
+    clean_uniform: 'Чисто облекло',
+    washed_hands: 'Измити ръце',
+    no_jewelry: 'Без бижута',
+    note: 'Забележки'
+  },
+  waste: {
+    waste_type: 'Вид отпадък',
+    quantity: 'Количество',
+    container: 'Контейнер',
+    disposed_where: 'Изхвърлено къде',
+    executor: 'Изпълнител'
+  },
+  pest_control: {
+    zone: 'Зона',
+    observation: 'Наблюдение',
+    action: 'Действие',
+    executor: 'Изпълнител'
+  },
+  equipment_control: {
+    equipment: 'Оборудване',
+    status: 'Статус',
+    note: 'Забележки',
+    corrective_action: 'Коригиращо действие'
+  },
+  water_control: {
+    source: 'Източник',
+    certificate: 'Сертификат',
+    note: 'Забележки'
+  },
+  ddd: {
+    treatment_type: 'Вид обработка',
+    executor: 'Изпълнител',
+    chemical: 'Препарат',
+    zone: 'Зона',
+    protocol_number: 'Протокол №'
+  },
+  traceability: {
+    product: 'Продукт',
+    batch: 'Партида',
+    supplier: 'Доставчик',
+    quantity: 'Количество',
+    used_in: 'Използван в'
+  },
+  complaints: {
+    client: 'Клиент',
+    description: 'Описание',
+    product: 'Продукт',
+    action: 'Действие',
+    result: 'Резултат'
+  }
+};
+
+const mapping = columnMappings[entryType] || {};
+const updateData = {};
+
+for (const [field, columnName] of Object.entries(mapping)) {
+  if (updates[field]) {
+    updateData[columnName] = updates[field];
+  }
+}
+
+return [{
+  json: {
+    chatId: data.chatId,
+    entryType,
+    sheetName: data.sheetName,
+    rowNumber: data.rowNumber,
+    updateData,
+    skipped: data.skipped
+  }
+}];
+
+--- Merge Updates ---
+const currentRow = $input.first().json;
+const prepData = $('Prepare Sheet Update').first().json;
+const updateData = prepData.updateData || {};
+
+// Merge-ваме: текущите данни + новите стойности
+const merged = { ...currentRow };
+for (const [col, val] of Object.entries(updateData)) {
+  if (val && val !== '') {
+    merged[col] = val;
+  }
+}
+
+return [{
+  json: {
+    chatId: prepData.chatId,
+    entryType: prepData.entryType,
+    sheetName: prepData.sheetName,
+    rowNumber: prepData.rowNumber,
+    merged
+  }
+}];
+

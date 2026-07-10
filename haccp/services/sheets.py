@@ -8,7 +8,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 
 from haccp.config import DiaryConfig, get_diaries, get_settings
-from haccp.models.state import ExtractedEntry, MissingField, WrittenEntry
+from haccp.models.state import ExtractedEntry, InvoiceItem, MissingField, WrittenEntry
 
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
@@ -55,17 +55,27 @@ class SheetsService:
         *,
         entry_id: str,
         signature: str,
+        item: InvoiceItem | None = None,
     ) -> dict[str, Any]:
         data = entry.to_row_dict()
+        if item is not None:
+            data["product"] = item.product
+            data["quantity"] = item.quantity
+            data["unit"] = item.unit
+            data["temperature"] = item.temperature
+            data["expiry_date"] = item.expiry_date
+            data["package_condition"] = item.package_condition
+            data["decision"] = item.decision
+
         data["entry_id"] = entry_id
         data["date"] = self._format_date(entry)
         data["time"] = self._format_time(entry)
         data["signature"] = signature or data.get("signature") or ""
         data["timestamp"] = self._format_timestamp()
 
-        if entry.entry_type == "incoming_goods" and entry.quantity is not None:
-            unit = entry.unit or "бр"
-            data["quantity"] = f"{entry.quantity} {unit}".strip()
+        if entry.entry_type == "incoming_goods" and data.get("quantity") is not None:
+            unit = data.get("unit") or "бр"
+            data["quantity"] = f"{data.get('quantity')} {unit}".strip()
 
         row: dict[str, Any] = {}
         for field, column in diary.columns.items():
@@ -93,33 +103,52 @@ class SheetsService:
         *,
         signature: str,
         entry_id: str | None = None,
-    ) -> WrittenEntry:
+    ) -> list[WrittenEntry]:
         if entry.entry_type == "unknown":
             raise ValueError("Cannot write unknown entry type")
 
         diary = self.diaries[entry.entry_type]
         worksheet = self._get_worksheet(diary.sheet)
         entry_id = entry_id or str(int(self._now().timestamp() * 1000))
-        row = self._build_row(entry, diary, entry_id=entry_id, signature=signature)
+
+        rows: list[dict[str, Any]] = []
+        if entry.entry_type == "incoming_goods" and diary.supports_invoice_items and entry.items:
+            for item in entry.items:
+                rows.append(
+                    self._build_row(
+                        entry,
+                        diary,
+                        entry_id=entry_id,
+                        signature=signature,
+                        item=item,
+                    )
+                )
+        else:
+            rows.append(self._build_row(entry, diary, entry_id=entry_id, signature=signature))
 
         headers = worksheet.row_values(1)
         if not headers:
-            headers = list(row.keys())
+            headers = list(rows[0].keys())
             worksheet.append_row(headers, value_input_option="USER_ENTERED")
 
-        ordered = [row.get(h, "") for h in headers]
-        worksheet.append_row(ordered, value_input_option="USER_ENTERED")
-        row_number = len(worksheet.get_all_values())
+        written_entries: list[WrittenEntry] = []
+        for row in rows:
+            ordered = [row.get(h, "") for h in headers]
+            worksheet.append_row(ordered, value_input_option="USER_ENTERED")
+            row_number = len(worksheet.get_all_values())
+            missing = self._find_missing(entry, diary, row)
+            written_entries.append(
+                WrittenEntry(
+                    entry_id=entry_id,
+                    entry_type=entry.entry_type,
+                    sheet_name=diary.sheet,
+                    row_number=row_number,
+                    data=row,
+                    missing=missing,
+                )
+            )
 
-        missing = self._find_missing(entry, diary, row)
-        return WrittenEntry(
-            entry_id=entry_id,
-            entry_type=entry.entry_type,
-            sheet_name=diary.sheet,
-            row_number=row_number,
-            data=row,
-            missing=missing,
-        )
+        return written_entries
 
     def update_row(
         self,

@@ -141,6 +141,7 @@ class GraphState(TypedDict, total=False):
     # Input
     telegram_user_id: str
     chat_id: str
+    telegram_user_name: str | None
     input_kind: InputKind
     raw_text: str | None
     file_bytes: bytes | None
@@ -163,3 +164,4 @@ class GraphState(TypedDict, total=False):
     help_requested: bool
     pending_handled: bool
     finished: bool
+    pending_entry: ExtractedEntry | None

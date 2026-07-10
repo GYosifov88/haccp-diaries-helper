@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from haccp.config import get_settings
-from haccp.models.state import EntryType, MissingField
+from haccp.models.state import EntryType, ExtractedEntry, MissingField
 
 
 @dataclass
@@ -18,6 +18,7 @@ class PendingEntry:
     row_number: int
     missing: list[MissingField]
     asked_at: float
+    entry: ExtractedEntry | None = None
 
 
 class PendingStore:
@@ -46,7 +47,8 @@ class PendingStore:
                     sheet_name TEXT NOT NULL,
                     row_number INTEGER NOT NULL,
                     missing_json TEXT NOT NULL,
-                    asked_at REAL NOT NULL
+                    asked_at REAL NOT NULL,
+                    entry_json TEXT
                 )
                 """
             )
@@ -72,8 +74,8 @@ class PendingStore:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO pending_entries
-                (chat_id, entry_type, entry_id, sheet_name, row_number, missing_json, asked_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                (chat_id, entry_type, entry_id, sheet_name, row_number, missing_json, asked_at, entry_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     pending.chat_id,
@@ -83,6 +85,7 @@ class PendingStore:
                     pending.row_number,
                     json.dumps([m.model_dump() for m in pending.missing], ensure_ascii=False),
                     pending.asked_at,
+                    json.dumps(pending.entry.model_dump() if pending.entry else None, ensure_ascii=False),
                 ),
             )
 
@@ -99,6 +102,8 @@ class PendingStore:
             self.clear(chat_id)
             return None
         missing = [MissingField(**item) for item in json.loads(row["missing_json"])]
+        entry_payload = json.loads(row["entry_json"]) if row["entry_json"] else None
+        entry = ExtractedEntry(**entry_payload) if entry_payload else None
         return PendingEntry(
             chat_id=row["chat_id"],
             entry_type=row["entry_type"],
@@ -107,6 +112,7 @@ class PendingStore:
             row_number=row["row_number"],
             missing=missing,
             asked_at=row["asked_at"],
+            entry=entry,
         )
 
     def clear(self, chat_id: str) -> None:

@@ -1,0 +1,41 @@
+{
+  "source": "n8n",
+  "target": "langgraph",
+  "nodes": [
+    {
+      "n8n": "Telegram Trigger",
+      "langgraph": "resolve_user"
+    },
+    {
+      "n8n": "Resolve User",
+      "langgraph": "resolve_user"
+    },
+    {
+      "n8n": "Edit Fields",
+      "langgraph": "input normalization"
+    },
+    {
+      "n8n": "Transcribe a recording",
+      "langgraph": "media transcription"
+    },
+    {
+      "n8n": "OCR Document",
+      "langgraph": "OCR service"
+    },
+    {
+      "n8n": "Build Dynamic Context",
+      "langgraph": "classification + extraction prompt"
+    },
+    {
+      "n8n": "Append row in fridge_temp",
+      "langgraph": "write_entry"
+    },
+    {
+      "n8n": "Append row in incoming_goods",
+      "langgraph": "write_entry"
+    }
+  ],
+  "notes": [
+    "The original workflow used dynamic branches per diary type; the LangGraph version uses a single structured schema and a diary-specific mapping layer."
+  ]
+}

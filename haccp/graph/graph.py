@@ -9,7 +9,7 @@ from haccp.models.state import GraphState, TelegramUser
 from haccp.graph.nodes.extraction import extract_entry
 from haccp.graph.nodes.validation import validate_entry
 from haccp.graph.nodes.classification import classify_entry_type
-from haccp.graph.nodes.pending import continue_pending_entry, handle_pending, load_pending_entry, merge_pending_entry, should_continue_pending_entry
+from haccp.graph.nodes.pending import clear_pending_entry, handle_pending, load_pending_entry, should_continue_pending_entry
 from haccp.graph.nodes.response import build_response_message
 from haccp.graph.nodes.follow_up import build_follow_up_message
 from haccp.services.sheets import SheetsService
@@ -47,19 +47,6 @@ def classify_node(state: dict[str, Any]) -> dict[str, Any]:
     return state
 
 
-def continue_pending_node(state: dict[str, Any]) -> dict[str, Any]:
-    entry = state.get("pending_entry")
-    if not isinstance(entry, ExtractedEntry):
-        return state
-
-    text = state.get("raw_text") or state.get("input_text") or ""
-    updated = continue_pending_entry(entry, text)
-    state["pending_entry"] = updated
-    state["extracted"] = updated
-    state["entry_type"] = updated.entry_type
-    return state
-
-
 def write_entry(state: dict[str, Any]) -> dict[str, Any]:
     entry = state.get("extracted")
     if not entry:
@@ -78,6 +65,11 @@ def write_entry(state: dict[str, Any]) -> dict[str, Any]:
         state["reply_messages"] = [f"Записът е подготвен, но не можа да бъде записан: {exc}"]
         state["finished"] = True
         return state
+
+    try:
+        clear_pending_entry(chat_id=str(state.get("chat_id") or ""))
+    except Exception:  # pragma: no cover - a failed cleanup must not fail a successful write
+        pass
 
     state["written_entries"] = written_entries
     state["reply_messages"] = [build_response_message(entry, missing_fields=[], written=True)]
@@ -108,7 +100,6 @@ def build_graph() -> Any:
     workflow.add_node("validate", validate_entry)
     workflow.add_node("write", write_entry)
     workflow.add_node("pending", handle_pending)
-    workflow.add_node("continue_pending", continue_pending_node)
     workflow.add_node("finalize", finalize)
 
     workflow.set_entry_point("resolve_user")
@@ -123,15 +114,6 @@ def build_graph() -> Any:
             "write": "write",
         },
     )
-    workflow.add_conditional_edges(
-        "classify",
-        lambda state: "continue_pending" if should_continue_pending_entry(state.get("raw_text") or state.get("input_text")) else "extract",
-        {
-            "continue_pending": "continue_pending",
-            "extract": "extract",
-        },
-    )
-    workflow.add_edge("continue_pending", "extract")
     workflow.add_edge("write", "finalize")
     workflow.add_edge("pending", "finalize")
     workflow.add_edge("finalize", END)

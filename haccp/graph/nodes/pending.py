@@ -42,6 +42,10 @@ def load_pending_entry(*, chat_id: str, db_path: str | None = None) -> PendingEn
     return store.get(chat_id)
 
 
+def clear_pending_entry(*, chat_id: str, db_path: str | None = None) -> None:
+    PendingStore(db_path=db_path).clear(chat_id)
+
+
 def should_continue_pending_entry(text: str | None) -> bool:
     """Return True when a message looks like a follow-up to an existing pending diary entry."""
     if not text:

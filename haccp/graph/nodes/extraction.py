@@ -445,6 +445,17 @@ def extract_entry(state: dict[str, Any]) -> dict[str, Any]:
     if not raw_text and state.get("input_text"):
         raw_text = state["input_text"]
 
+    pending = state.get("pending_entry")
+    if isinstance(pending, ExtractedEntry):
+        # Continuation of an incomplete entry: the pending entry is the base and the
+        # reply only fills missing fields. Keep the pending diary type, ignore re-classification.
+        from haccp.graph.nodes.pending import continue_pending_entry
+
+        entry = continue_pending_entry(pending.model_copy(deep=True), raw_text)
+        state["extracted"] = entry
+        state["entry_type"] = entry.entry_type
+        return state
+
     entry_type = state.get("entry_type") or "unknown"
     if entry_type == "unknown":
         from haccp.graph.nodes.classification import classify_entry_type
@@ -466,11 +477,6 @@ def extract_entry(state: dict[str, Any]) -> dict[str, Any]:
         llm_payload = None
 
     entry = _build_entry(entry_type, text=raw_text, signature=signature)
-    pending = state.get("pending_entry")
-    if pending is not None and isinstance(pending, ExtractedEntry):
-        from haccp.graph.nodes.pending import merge_pending_entry
-
-        entry = merge_pending_entry(entry, pending.model_dump(exclude_none=True, exclude={"entry_type"}))
     if llm_payload and isinstance(llm_payload.get("output"), dict):
         output = llm_payload["output"]
         if isinstance(output, dict):

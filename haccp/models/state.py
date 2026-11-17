@@ -165,3 +165,5 @@ class GraphState(TypedDict, total=False):
     pending_handled: bool
     finished: bool
     pending_entry: ExtractedEntry | None
+    pending_missing: list[str]
+    pending_abandoned: str | None

@@ -9,7 +9,7 @@ from haccp.models.state import GraphState, TelegramUser
 from haccp.graph.nodes.extraction import extract_entry
 from haccp.graph.nodes.validation import validate_entry
 from haccp.graph.nodes.classification import classify_entry_type
-from haccp.graph.nodes.pending import clear_pending_entry, handle_pending, load_pending_entry, should_continue_pending_entry
+from haccp.graph.nodes.pending import clear_pending_entry, handle_pending, is_pending_continuation, load_pending_entry, should_continue_pending_entry
 from haccp.graph.nodes.response import build_response_message
 from haccp.graph.nodes.follow_up import build_follow_up_message
 from haccp.services.sheets import SheetsService
@@ -34,7 +34,7 @@ def resolve_user(state: dict[str, Any]) -> dict[str, Any]:
     pending = load_pending_entry(chat_id=chat_id)
     if pending is not None:
         state["pending_handled"] = True
-        state["validation_errors"] = [item.field for item in pending.missing]
+        state["pending_missing"] = [item.field for item in pending.missing]
         state["raw_text"] = state.get("raw_text") or state.get("input_text") or ""
         state["pending_entry"] = pending.entry
     return state
@@ -44,6 +44,21 @@ def classify_node(state: dict[str, Any]) -> dict[str, Any]:
     text = state.get("raw_text") or state.get("input_text") or ""
     state["entry_type"] = classify_entry_type(text)
     state["help_requested"] = should_continue_pending_entry(text)
+
+    pending_entry = state.get("pending_entry")
+    if pending_entry is not None:
+        if not is_pending_continuation(
+            pending_entry,
+            state.get("pending_missing") or [],
+            text,
+            state["entry_type"],
+        ):
+            try:
+                clear_pending_entry(chat_id=str(state.get("chat_id") or ""))
+            except Exception:  # pragma: no cover - cleanup failure must not break the new entry
+                pass
+            state["pending_abandoned"] = pending_entry.entry_type
+            state["pending_entry"] = None
     return state
 
 
@@ -88,6 +103,11 @@ def finalize(state: dict[str, Any]) -> dict[str, Any]:
             ]
         else:
             state["reply_messages"] = ["Извличането е готово, но има липсващи полета: " + ", ".join(state["validation_errors"])]
+    if state.get("pending_abandoned"):
+        state["reply_messages"] = [
+            f"Предишният незавършен запис за {state['pending_abandoned']} беше отказан и няма да бъде записан.",
+            *state.get("reply_messages", []),
+        ]
     state["finished"] = True
     return state
 
@@ -136,6 +156,8 @@ def run_workflow(payload: dict[str, Any]) -> dict[str, Any]:
         "help_requested": False,
         "pending_handled": False,
         "pending_entry": None,
+        "pending_missing": [],
+        "pending_abandoned": None,
         "entries_to_write": [],
         "written_entries": [],
         "validation_errors": [],

@@ -54,16 +54,10 @@ def should_continue_pending_entry(text: str | None) -> bool:
     return any(keyword in normalized for keyword in ("продължи", "продължавам", "добави", "липсва", "срок", "годност", "допълни", "продължение"))
 
 
-def continue_pending_entry(entry: ExtractedEntry, text: str | None) -> ExtractedEntry:
-    """Extract new values from a follow-up message and merge them into the current pending entry."""
-    if not text:
-        return entry
-
+def parse_follow_up_fields(text: str) -> dict[str, str]:
+    """Return the explicitly labelled diary fields found in a follow-up message."""
     normalized = text.strip()
-    if not normalized:
-        return entry
-
-    payload: dict[str, Any] = {}
+    payload: dict[str, str] = {}
     patterns: list[tuple[str, str]] = [
         ("expiry_date", r"(?:срок\s+на\s+годност|годност|expiry)\s*[:\-]?\s*(\d{1,2}[./-]\d{1,2}[./-]\d{2,4}|\d{1,2}\s+\w+\s+\d{4})"),
         ("batch", r"(?:партиен(?:\s+номер)?|парти|batch)\s*[:\-]?\s*([^,;\n]+)"),
@@ -89,6 +83,39 @@ def continue_pending_entry(entry: ExtractedEntry, text: str | None) -> Extracted
             value = match.group(1).strip()
             if value:
                 payload[field] = value
+
+    return payload
+
+
+def is_pending_continuation(pending: PendingEntry | ExtractedEntry, missing: list[str], text: str | None, new_type: str) -> bool:
+    """Decide whether a message answers the pending follow-up or starts a new entry.
+
+    ``pending`` only needs an ``entry_type`` (a stored PendingEntry or the pending ExtractedEntry).
+    """
+    diary = get_diaries().get(pending.entry_type)
+    if diary is None:
+        return False
+    hits = parse_follow_up_fields(text or "")
+    # Re-stating a required field the pending entry already has means a fresh entry.
+    if any(f in diary.required_fields and f not in missing for f in hits):
+        return False
+    # Supplying a field we are waiting for is a continuation.
+    if any(f in missing for f in hits):
+        return True
+    # Bare replies ("10.07.2026", "Метро") classify as unknown and are still continuations.
+    return new_type == "unknown"
+
+
+def continue_pending_entry(entry: ExtractedEntry, text: str | None) -> ExtractedEntry:
+    """Extract new values from a follow-up message and merge them into the current pending entry."""
+    if not text:
+        return entry
+
+    normalized = text.strip()
+    if not normalized:
+        return entry
+
+    payload: dict[str, Any] = dict(parse_follow_up_fields(normalized))
 
     # Fallback: loose date extraction (e.g., 10.07.2026)
     if "expiry_date" not in payload:

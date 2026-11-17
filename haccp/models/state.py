@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from operator import add
-from typing import Annotated, Any, Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
@@ -159,7 +158,8 @@ class GraphState(TypedDict, total=False):
     validation_errors: list[str]
 
     # Output
-    reply_messages: Annotated[list[str], add]
+    reply_messages: list[str]
+    write_error: str | None
     access_denied: bool
     help_requested: bool
     pending_handled: bool

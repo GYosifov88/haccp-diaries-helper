@@ -61,7 +61,7 @@ def write_entry(state: dict[str, Any]) -> dict[str, Any]:
             signature=state.get("user").signature if state.get("user") else "неизвестен",
         )
     except Exception as exc:  # pragma: no cover - runtime dependent
-        state["validation_errors"] = [str(exc)]
+        state["write_error"] = str(exc)
         state["reply_messages"] = [f"Записът е подготвен, но не можа да бъде записан: {exc}"]
         state["finished"] = True
         return state
@@ -139,5 +139,6 @@ def run_workflow(payload: dict[str, Any]) -> dict[str, Any]:
         "entries_to_write": [],
         "written_entries": [],
         "validation_errors": [],
+        "write_error": None,
     }
     return graph.invoke(initial_state)

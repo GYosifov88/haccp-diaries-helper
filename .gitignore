@@ -16,3 +16,4 @@ service-account.json
 .DS_Store
 .idea/
 .vscode/
+config/users.yaml

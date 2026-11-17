@@ -13,6 +13,9 @@ from haccp.models.state import WrittenEntry
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
+# Telegram id of the default test sender; the `offline` fixture registers it as authorized.
+AUTHORIZED_USER_ID = "1001"
+
 
 @pytest.fixture(autouse=True)
 def isolated_pending_db(tmp_path, monkeypatch):
@@ -38,9 +41,9 @@ class FakeSheetsService:
         ]
 
 
-def make_payload(chat_id: str, text: str) -> dict[str, Any]:
+def make_payload(chat_id: str, text: str, user_id: str = AUTHORIZED_USER_ID) -> dict[str, Any]:
     return {
-        "telegram_user_id": chat_id,
+        "telegram_user_id": user_id,
         "chat_id": chat_id,
         "telegram_user_name": "Иван",
         "input_kind": "text",
@@ -72,6 +75,8 @@ def offline(monkeypatch, tmp_path):
     """Opt-in fixture that makes run_workflow fully offline.
 
     - real SQLite pending store in a temp dir, settings built without .env
+    - authorized users in ``offline["users"]`` (id -> name); the default sender
+      ``AUTHORIZED_USER_ID`` is pre-registered, add more ids per test
     - fake extraction LLM driven by ``offline["llm_outputs"]``: a list of
       (substring, output) pairs matched in order against the prompt; when nothing
       matches the reply-only placeholder is returned
@@ -88,7 +93,8 @@ def offline(monkeypatch, tmp_path):
     monkeypatch.setattr(config, "_settings", settings)
     monkeypatch.setattr(config, "_diaries", None)
     monkeypatch.setattr(config, "_classification_hints", None)
-    monkeypatch.setattr(graph_module, "get_users", lambda: {})
+    users: dict[str, str] = {AUTHORIZED_USER_ID: "Иван"}
+    monkeypatch.setattr(graph_module, "get_users", lambda: dict(users))
     pending._clear_llm_cache()
 
     llm_outputs: list[tuple[str, dict[str, Any]]] = []
@@ -112,6 +118,7 @@ def offline(monkeypatch, tmp_path):
     monkeypatch.setattr(graph_module, "SheetsService", FakeSheetsService)
 
     return {
+        "users": users,
         "llm_outputs": llm_outputs,
         "extraction_prompts": extraction_prompts,
         "followup_llm_calls": followup_llm_calls,

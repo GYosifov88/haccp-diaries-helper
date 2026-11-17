@@ -22,14 +22,18 @@ def resolve_user(state: dict[str, Any]) -> dict[str, Any]:
     mapped_name = users.get(telegram_user_id)
     display_name = state.get("telegram_user_name")
     signature = display_name or mapped_name or "Unknown"
+    allowed = bool(telegram_user_id) and telegram_user_id in users
     state["user"] = TelegramUser(
         user_id=telegram_user_id,
         chat_id=chat_id,
         name=mapped_name or signature,
         signature=signature,
-        allowed=bool(telegram_user_id),
+        allowed=allowed,
     )
-    state["access_denied"] = not bool(telegram_user_id)
+    state["access_denied"] = not allowed
+    if not allowed:
+        # Unauthorized senders must not load or touch pending rows.
+        return state
 
     pending = load_pending_entry(chat_id=chat_id)
     if pending is not None:
@@ -123,7 +127,14 @@ def build_graph() -> Any:
     workflow.add_node("finalize", finalize)
 
     workflow.set_entry_point("resolve_user")
-    workflow.add_edge("resolve_user", "classify")
+    workflow.add_conditional_edges(
+        "resolve_user",
+        lambda state: "finalize" if state.get("access_denied") else "classify",
+        {
+            "finalize": "finalize",
+            "classify": "classify",
+        },
+    )
     workflow.add_edge("classify", "extract")
     workflow.add_edge("extract", "validate")
     workflow.add_conditional_edges(

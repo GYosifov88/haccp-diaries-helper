@@ -15,7 +15,11 @@ def test_personal_hygiene_message_parses_employee_and_hygiene_flags() -> None:
     assert entry.no_jewelry == "да"
 
 
-def test_personal_hygiene_workflow_roundtrip() -> None:
+def test_personal_hygiene_workflow_roundtrip(offline) -> None:
+    offline["users"]["123"] = "Георги"
+    # The LLM returns nothing usable, so extraction falls back to the regex path.
+    offline["llm_outputs"].append(("Георги", {}))
+
     result = run_workflow({
         "telegram_user_id": "123",
         "chat_id": "123",

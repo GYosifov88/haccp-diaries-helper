@@ -1,9 +1,13 @@
+import logging
 from pathlib import Path
 from typing import Any
 
 import yaml
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+logger = logging.getLogger(__name__)
 
 
 class DiaryConfig(BaseModel):
@@ -71,12 +75,10 @@ def load_users(path: str | None = None) -> dict[str, str]:
     global _users
     config_path = Path(path or get_settings().users_config_path)
     if not config_path.exists():
-        example = config_path.parent / "users.example.yaml"
-        if example.exists():
-            config_path = example
-        else:
-            _users = {}
-            return _users
+        # Fail closed: a missing allowlist authorizes nobody (the example file is never loaded).
+        logger.warning("Users config not found at %s; no Telegram user is authorized.", config_path)
+        _users = {}
+        return _users
 
     with config_path.open(encoding="utf-8") as f:
         raw = yaml.safe_load(f) or {}

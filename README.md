@@ -12,6 +12,7 @@ In a working kitchen, HACCP diaries (fridge temperatures, cleaning, incoming goo
 - **Validates** the required fields. If something is missing it doesn't drop the entry — it remembers the partial record and **asks a follow-up question**, then continues the conversation.
 - **Transcribes** voice notes (Whisper) and runs **OCR on invoice photos** (GPT vision) to log incoming-goods line items.
 - **Writes** the finished row to the correct sheet in Google Sheets, signed with the sender's name.
+- **Access control:** only Telegram ids on the allowlist (`users.yaml`) are processed — a message from anyone else is refused before any model call or write, so strangers can't create audit records.
 
 ## How it works
 
@@ -19,14 +20,13 @@ A single LangGraph `StateGraph` processes each incoming message:
 
 ```mermaid
 flowchart TD
-    A["resolve_user<br/>map Telegram id → signature,<br/>load any pending entry"] --> B["classify<br/>keyword scoring → diary type"]
-    B -->|normal message| C["extract<br/>LLM → typed fields"]
-    B -->|reply to a follow-up| P["continue_pending<br/>merge new info into the saved entry"]
-    P --> C
+    A["resolve_user<br/>allowlist check + load any pending entry"] -->|not allowlisted| G["finalize → reply"]
+    A -->|allowed| B["classify<br/>keyword scoring → diary type;<br/>abandon a stale pending if this isn't a continuation"]
+    B --> C["extract<br/>LLM → typed fields;<br/>continue the pending entry if one is still set"]
     C --> D["validate<br/>check required fields"]
-    D -->|complete| E["write<br/>append row to Google Sheets"]
-    D -->|missing fields| F["pending<br/>save partial entry in SQLite,<br/>ask only for what's missing"]
-    E --> G["finalize → reply"]
+    D -->|complete| E["write<br/>append row to Google Sheets, clear pending"]
+    D -->|missing fields| F["pending<br/>save partial entry in SQLite, ask for what's missing"]
+    E --> G
     F --> G
 ```
 
@@ -39,6 +39,8 @@ The most useful mechanic. A kitchen message is often incomplete — e.g. "хла
 1. saves the partial entry in SQLite with a time-to-live,
 2. replies asking only for the missing field,
 3. merges the staff member's next reply back into the saved entry and finishes the record.
+
+A message that clearly starts a *different* entry is treated as new, not merged into the pending one.
 
 ## Diary types
 
@@ -60,7 +62,7 @@ Adding or changing a diary is a YAML edit, not a code change. The Pydantic entry
 | Storage | Google Sheets via `gspread` + service account |
 | Follow-up state | SQLite (TTL-based) |
 | Types / validation | Pydantic, typed `GraphState` |
-| Tests | pytest (27 test modules) |
+| Tests | pytest (54 tests) |
 
 ## Project structure
 
@@ -100,7 +102,7 @@ Requires Python 3.11+, an OpenAI API key, a Telegram bot token, and a Google ser
    OPENAI_MODEL=gpt-4o-mini
    TIMEZONE=Europe/Sofia
    ```
-3. Copy `config/users.example.yaml` to `config/users.yaml` and map Telegram user ids to the signatures that should appear in the sheet.
+3. Copy `config/users.example.yaml` to `config/users.yaml` and map Telegram user ids to the signatures that should appear in the sheet. Only the ids listed here may use the bot — everyone else gets a no-access reply, and the example file is a template that is never loaded at runtime.
 4. Put your Google service-account JSON at the path above, and share the spreadsheet with the service-account email.
 
 ## Running
@@ -125,7 +127,7 @@ run_bot()
 pytest
 ```
 
-The 27 test modules cover classification, per-diary extraction, the pending / follow-up lifecycle, invoice OCR line items, voice transcription, and signature handling.
+The suite (54 tests) covers classification, per-diary extraction, the pending / follow-up lifecycle and its continuation-vs-new-entry routing, invoice OCR line items, voice transcription, signature handling, and the authorization allowlist. Each integration bug fix ships with a test that fails without it.
 
 ## Status & limitations
 
@@ -134,6 +136,8 @@ A personal project, built to practice migrating a real n8n automation into a typ
 - The Telegram bot runs on long-polling; there is no webhook or deployment wiring in this repo.
 - Required-field validation is structural (is the field present?), not a judgment on whether the logged value is correct.
 - Classification is keyword-based, so very terse or unusual phrasings can fall through to `unknown`.
+- Classification runs before voice/photo transcription, so a *new* voice or photo entry sent while an unrelated follow-up is still pending can be misrouted as a continuation.
+- The sender's Telegram display name takes precedence over the signature configured in `users.yaml`.
 
 ## License
 

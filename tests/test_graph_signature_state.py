@@ -1,8 +1,8 @@
-from haccp.graph.graph import resolve_user, run_workflow
+from haccp.graph.graph import run_workflow
 
 
-def test_run_workflow_preserves_telegram_user_name_into_signature(monkeypatch) -> None:
-    monkeypatch.setattr("haccp.graph.graph.get_users", lambda: {})
+def test_run_workflow_preserves_telegram_user_name_into_signature(offline) -> None:
+    offline["users"]["123"] = "Иван Петров"
 
     result = run_workflow({
         "telegram_user_id": "123",
@@ -13,5 +13,6 @@ def test_run_workflow_preserves_telegram_user_name_into_signature(monkeypatch) -
         "input_text": "купихме стоки",
     })
 
+    assert result["access_denied"] is False
     assert result["user"].signature == "Иван Петров"
     assert result["user"].name == "Иван Петров"
